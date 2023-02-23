@@ -1,0 +1,408 @@
+#!/usr/bin/env node
+const fs = require("fs");
+let https = require("https");
+const chalk = require("chalk");
+const { resolve } = require("path");
+const args = process.argv;
+const root = resolve('./');
+var swagger = {};
+const pathAndInterfaces = [];
+let fileUrl = '';
+main();
+async function main() {
+  var urlIndex = args.indexOf('--url');
+  if (urlIndex === -1) {
+    return console.log(chalk.red('请先传入swagger配置的url地址！'));
+  }
+  else {
+    fileUrl = args[urlIndex + 1];
+    if (!fileUrl) {
+      return console.log(chalk.red('请先传入swagger配置的url地址！'));
+    }
+    if (fileUrl.indexOf('http://') !== -1) {
+      https = require('http');
+    }
+    else {
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+    }
+  }
+  const existSwagger = fs.existsSync(root + "/swagger.json");
+  var hasF = args.indexOf("-f") !== -1;
+  if (!existSwagger || hasF) {
+    console.log(chalk.blue(`正在从[${fileUrl}]获取新的swagger配置！`));
+    var downResult = await getSwaggerFile();
+    if (!downResult) {
+      return console.log(chalk.red('swagger配置请求失败,请检查网络或url是否设置正确！'));
+    }
+  }
+  else {
+    console.log(chalk.blue('使用已存在的swagger配置！'));
+  }
+  const jsonString = fs.readFileSync(root + "/swagger.json");
+  swagger = JSON.parse(jsonString);
+  if ((!swagger.openapi && !swagger.swagger) || (swagger.openapi || swagger.swagger).split('.')[0] !== '3') {
+    console.log(chalk.red('当前openapi版本不是3.x.x版本，无法保证生成的api配置全部正确，请酌情使用。'));
+  }
+  else {
+    console.log(chalk.green(`当前openapi版本:${(swagger.openapi || swagger.swagger)},适用当前版本！`));
+  }
+  createActionDirs();
+  return process.exit();
+}
+
+function pathConvertTOUpperCamelCaseActionName(path) {
+  var methodName = getHttpMethod(path);
+  var operationId = swagger['paths'][path][methodName]['operationId'];
+  if (operationId) { return operationId; }
+  var paths = path.split("/");
+  var name = "";
+  paths.forEach(p => {
+    var pathParam = /(?<=\{)(\w+)(?=\})/.exec(p);
+    if (pathParam && pathParam.length) {
+      name +=
+        "By" +
+        pathParam[0].replace(/^([a-zA-Z])(\w+)/, (original, $1, $2) => {
+          if ($1 && $2) {
+            return $1.toUpperCase() + $2;
+          }
+          return original;
+        });
+    } else if (p !== "api") {
+      name += p.replace(/^([a-zA-Z])(\w+)/, (original, $1, $2) => {
+        if ($1 && $2) {
+          return $1.toUpperCase() + $2;
+        }
+        return original;
+      });
+    }
+  });
+  return name.replace(/\W/g, '_');
+}
+
+function createActionDirs() {
+  var actions = [];
+  for (const path in swagger.paths) {
+    let action = pathConvertTOUpperCamelCaseActionName(path);
+    if (actions.indexOf(action) != -1) {
+      if (/(\w+)(\d)$/.test(action)) {
+        action = action.replace(/(\w+)(\d)$/, function (_, $1, $2) {
+          return $1 + (parseInt($2) + 1);
+        });
+      } else {
+        action = action + "_1";
+      }
+    }
+    actions.push({ path, action });
+  }
+  if (!fs.existsSync(root + '/src')) {
+    fs.mkdirSync(root + `/src`);
+  }
+  if (!fs.existsSync(root + '/src/apis')) {
+    fs.mkdirSync(root + `/src/apis`);
+  }
+  let totalNew = 0;
+  actions.forEach((item) => {
+    var tags = getTagsByPath(item.path);
+    var actionPath = `/src/apis/${item.action}`;
+    if (tags && tags.length) {
+      var tag = tags[0];
+      actionPath = `/src/apis/${tag}/${item.action}`;
+      if (!fs.existsSync(root + `/src/apis/${tag}`)) {
+        fs.mkdirSync(root + `/src/apis/${tag}`);
+      }
+    }
+    if (!fs.existsSync(root + actionPath)) {
+      fs.mkdirSync(root + actionPath);
+    }
+    var requestBodyContent = buildRequestBodyInterface(item);
+    var parameterContent = buildParametersInterface(item);
+    var responseContent = buildResponseInterface(item);
+    var indexFileContent = buildIndexFileContent(item, requestBodyContent.def || parameterContent.def, responseContent.def);
+    indexFileContent += '\n\n' + (requestBodyContent.model || '') + (parameterContent.model || '') + (responseContent.model || '');
+    fs.writeFileSync(root + actionPath + '/index.http.ts', indexFileContent);
+    fs.writeFileSync(root + actionPath + '/type.d.ts', `declare global {\n  interface HttpApi {\n    ${item.action}: typeof import("./index.http").default;\n}\n}\nexport {};`);
+    console.log(chalk.yellow(`生成或更新了接口配置[.${actionPath}]`));
+    totalNew++;
+  });
+  console.log(chalk.green(`共生成或更新了${totalNew}个接口的配置！`));
+}
+
+function getTagsByPath(path) {
+  var methodName = getHttpMethod(path);
+  var config = swagger["paths"][path][methodName];
+  return config["tags"];
+}
+
+function buildIndexFileContent(item, paramName, responseName) {
+  var methodName = getHttpMethod(item.path);
+  var paramDef = '';
+  var paramRef = ''
+  var url = '`' + item.path.replace(/\{(\w+)\}/g, '${request.$1}') + '`';
+  if (paramName) {
+    if (methodName == 'post' || methodName == 'put') {
+      paramDef = `\n  data: ${paramName}\n`;
+      paramRef = ', data';
+      url = '`' + item.path.replace(/\{(\w+)\}/g, '${data.$1}') + '`';
+    }
+    else {
+      paramDef = `\n  request: ${paramName}\n`;
+      paramRef = ', { params: request }';
+    }
+  }
+  var responseDef = `<AxiosResponse<${responseName || 'any'}>>`
+  return `import axios, { type AxiosResponse } from "axios";\n\nexport default function ${item.action}(${paramDef}): Promise${responseDef} {\n  return axios.${methodName}(${url}${paramRef});\n}`
+}
+
+function buildResponseInterface(item) {
+  var methodName = getHttpMethod(item.path);
+  var responses = swagger['paths'][item.path][methodName]['responses'];
+  var listDefs = [];
+  var model = '';
+  if (responses) {
+    for (var response in responses) {
+      if (responses[response].content) {
+        var schema = getRequestBodySchema(responses[response]);
+        if (schema) {
+          var shape = handleSchema(schema, item)
+          listDefs.push(shape.def);
+          model += shape.model;
+        }
+      }
+    }
+  }
+  return {
+    def: listDefs.join('|'),
+    model
+  };
+}
+
+function buildRequestBodyInterface(item) {
+  var methodName = getHttpMethod(item.path);
+  var requestBody = swagger['paths'][item.path][methodName]['requestBody'];
+  if (!requestBody) { return ''; }
+  var schema = getRequestBodySchema(requestBody);
+  var shape = handleSchema(schema, item)
+  return shape;
+}
+
+function buildParametersInterface(item) {
+  var shape = { def: '', model: '' };
+  var methodName = getHttpMethod(item.path);
+  var parameters = swagger['paths'][item.path][methodName]['parameters'];
+  if (parameters) {
+    var model = `interface ${item.action}Request {\n`;
+    var childModel = '';
+    parameters.forEach(parameter => {
+      var nullable = !parameter.required ? '?' : ''
+      if (parameter.required) {
+        model += `  /**\n   * required: ${parameter.required}\n   */\n`
+      }
+      if (parameter.schema) {
+        var parameterShape = handleSchema(parameter.schema, item)
+        model += '  ' + parameter.name + nullable + ': ' + parameterShape.def + ';\n';
+        childModel += parameterShape.model;
+      }
+      else {
+        var parameterShape = handleSchema(parameter, item)
+        model += parameterShape.def;
+        childModel += parameterShape.model;
+      }
+    })
+    model += `}\n\n`;
+    shape.model = model;
+    shape.model += childModel;
+    shape.def = item.action + 'Request';
+  }
+  return shape;
+}
+
+
+function handleSchema(schema, item) {
+  var shape = {
+    def: '',
+    schema: schema,
+    model: ''
+  }
+  if (!schema) {
+    return shape;
+  }
+  var nullable = schema.nullable ? '?' : '';
+  if (schema.type == 'integer' || schema.type == 'number') {
+    if (schema.name) {
+      shape.def = '  ' + schema.name + nullable + ' : number;\n'
+    }
+    else if (schema.prop && schema.enum) {
+      shape.def = schema.prop;
+      if (schema.description) {
+        shape.model += `  /**\n   * ${schema.description}\n   */\n`
+      }
+      shape.model += `enum ${schema.prop} {\n${schema.enum.map(e => '  ' + (schema.prop + '_' + e).replace(/\W/g, '_') + ' = ' + e).join(',\n')}\n}\n\n`
+    }
+    else {
+      shape.def = 'number';
+    }
+  }
+  else if (schema.type == 'boolean') {
+    if (schema.name) {
+      shape.def = '  ' + schema.name + nullable + ' : boolean;\n'
+    }
+    else {
+      shape.def = 'boolean';
+    }
+  }
+  else if (schema.type == 'string') {
+    if (schema.name) {
+      shape.def = '  ' + schema.name + nullable + ' : string;\n'
+    }
+    else {
+      if (schema.format === 'binary') {
+        shape.def = 'BinaryData';
+      }
+      else {
+        shape.def = 'string';
+      }
+    }
+  }
+  else if (schema.type == 'object') {
+    if (schema.name) {
+      shape.def = '  ' + schema.name + nullable + ' : object;\n'
+    }
+    else if (schema.prop && schema.properties) {
+      shape.def = schema.prop;
+      var model = `interface ${schema.prop} {\n`;
+      var childModel = '';
+      for (var prop in schema.properties) {
+        var propSchema = schema.properties[prop];
+        propSchema.prop = prop;
+        var propShape = handleSchema(propSchema, item);
+        var comment = ''
+        if (propSchema.description) {
+          comment += `   * ${propSchema.description}\n`
+        }
+        if (propSchema.format) {
+          comment += `   * format: ${propSchema.format}\n`
+        }
+        if (comment) {
+          model += `  /**\n${comment}   */\n`
+        }
+        model += '  ' + (prop + (propSchema.nullable ? '?' : '') + ': ' + propShape.def) + ';\n';
+        childModel += propShape.model;
+      }
+      model += '}\n\n'
+      shape.model = model;
+      shape.model += childModel;
+    }
+    else if (schema.properties) {
+      for (var prop in schema.properties) {
+        var propSchema = schema.properties[prop];
+        propSchema.prop = prop;
+        var propShape = handleSchema(propSchema, item);
+        if (propShape.def === 'BinaryData' || propShape.def === 'BinaryData[]') {
+          shape.def = 'FormData';
+        }
+        else {
+          shape.def = 'object';
+        }
+      }
+    }
+    else {
+      shape.def = 'object';
+    }
+  }
+  else if (schema['$ref']) {
+    if (!pathAndInterfaces.find(e => e.path === item.path && e.ref === schema['$ref'])) {
+      pathAndInterfaces.push({ path: item.path, ref: schema['$ref'] })
+      var ref = getRefObject(schema['$ref']);
+      if (ref && ref.obj) {
+        ref.obj.prop = ref.name;
+        shape.def = ref.name;
+        var refShape = handleSchema(ref.obj, item);
+        shape.model += refShape.model;
+      }
+    }
+    else {
+      var ref = getRefObject(schema['$ref']);
+      shape.def = ref.name;
+    }
+  }
+  else if (schema.type == 'array') {
+    if (schema.name) {
+      shape.def = '  ' + schema.name + nullable + ' : [];\n'
+    }
+    else if (schema.items) {
+      var refShape = handleSchema(schema.items, item);
+      shape.def = refShape.def + '[]';
+      shape.model = refShape.model;
+    }
+    else {
+      shape.def = '[]';
+    }
+  }
+  return shape;
+}
+
+function getRequestBodySchema(requestBody) {
+  if (requestBody && requestBody.content) {
+    var keys = Object.keys(requestBody.content);
+    if (keys.length) {
+      return requestBody.content[keys[0]].schema;
+    }
+  }
+  return null;
+}
+
+
+function getHttpMethod(path) {
+  var methodNames = ["post", "get", "delete", "put"];
+  var keys = Object.keys(swagger.paths[path]);
+  var methodName = methodNames.find((e) => keys.indexOf(e) != -1);
+  return methodName;
+}
+
+
+function getRefObject(ref) {
+  try {
+    if (ref && typeof ref === 'string') {
+      var nameIdx = ref.lastIndexOf('/') + 1;
+      var name = ref.substring(nameIdx);
+      let fml = ref.replaceAll('/', '.').replace('#', 'swagger');
+      var dynObj = eval(fml);
+      return {
+        name: name,
+        obj: dynObj
+      }
+    }
+    else {
+
+    }
+    return null;
+  }
+  catch (ex) {
+
+  }
+}
+
+function getSwaggerFile() {
+  return new Promise((resolve) => {
+    https
+      .get(fileUrl,
+        (response) => {
+          let data = "";
+          response.on("data", (chunk) => {
+            data += chunk;
+          });
+
+          response.on("end", () => {
+            if (data) {
+              fs.writeFileSync(root + "/swagger.json", data);
+              resolve(true);
+            }
+          });
+        }
+      )
+      .on("error", (err) => {
+        console.log("Error: " + err.message);
+        resolve(false)
+      });
+  })
+}
