@@ -99,7 +99,8 @@ function createActionDirs() {
           action = action + "_1";
         }
       }
-      actions.push({ path, action, method });
+      var summary = swagger.paths[path][method]['summary']
+      actions.push({ path, action, method, summary });
     })
   }
   if (!fs.existsSync(root + '/src')) {
@@ -122,13 +123,17 @@ function createActionDirs() {
     if (!fs.existsSync(root + actionPath)) {
       fs.mkdirSync(root + actionPath);
     }
+    var summary = ''
+    if (item.summary.replaceAll(' ', '')) {
+      summary = `    /**\n     * ${item.summary}\n     */\n`
+    }
     var requestBodyContent = buildRequestBodyInterface(item);
     var parameterContent = buildParametersInterface(item);
     var responseContent = buildResponseInterface(item);
     var indexFileContent = buildIndexFileContent(item, requestBodyContent.def || parameterContent.def, responseContent.def);
     indexFileContent += '\n\n' + (requestBodyContent.model || '') + (parameterContent.model || '') + (responseContent.model || '');
     fs.writeFileSync(root + actionPath + '/index.http.ts', indexFileContent);
-    fs.writeFileSync(root + actionPath + '/type.d.ts', `declare global {\n  interface HttpApi {\n    ${item.action}: typeof import("./index.http").default;\n}\n}\nexport {};`);
+    fs.writeFileSync(root + actionPath + '/type.d.ts', `declare global {\n  interface HttpApi {\n${summary}    ${item.action}: typeof import("./index.http").default;\n  }\n}\nexport { };`);
     console.log(chalk.yellow(`生成或更新了接口配置[.${actionPath}]`));
     totalNew++;
   });
@@ -156,8 +161,8 @@ function buildIndexFileContent(item, paramName, responseName) {
     }
   }
   var summary = ''
-  if (swagger.paths[item.path][item.method]['summary']) {
-    summary = `/**\n * ${swagger.paths[item.path][item.method]['summary']}\n */\n`
+  if (item.summary.replaceAll(' ', '')) {
+    summary = `/**\n * ${item.summary}\n */\n`
   }
   var responseDef = `<AxiosResponse<${responseName || 'any'}>>`
   return `import axios, { type AxiosResponse } from "axios";\n\n${summary}export default function ${item.action}(${paramDef}): Promise${responseDef} {\n  return axios.${item.method}(${url}${paramRef});\n}`
