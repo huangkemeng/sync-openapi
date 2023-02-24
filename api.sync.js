@@ -4,10 +4,10 @@ let https = require("https");
 const chalk = require("chalk");
 const { resolve } = require("path");
 const args = process.argv;
-const root = resolve('./');
-var swagger = {};
+let swagger = {};
 const pathAndInterfaces = [];
 let fileUrl = '';
+let output = './src/apis';
 main();
 async function main() {
   var urlIndex = args.indexOf('--url');
@@ -26,7 +26,11 @@ async function main() {
       process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
     }
   }
-  const existSwagger = fs.existsSync(root + "/swagger.json");
+  var outputCmdIndex = args.indexOf('-o');
+  if (outputCmdIndex !== -1 && args[outputCmdIndex + 1]) {
+    output = args[outputCmdIndex + 1];
+  }
+  const existSwagger = fs.existsSync(resolve('./swagger.json'));
   var hasF = args.indexOf("-f") !== -1;
   if (!existSwagger || hasF) {
     console.log(chalk.blue(`正在从[${fileUrl}]获取新的swagger配置！`));
@@ -38,7 +42,7 @@ async function main() {
   else {
     console.log(chalk.blue('使用已存在的swagger配置！'));
   }
-  const jsonString = fs.readFileSync(root + "/swagger.json");
+  const jsonString = fs.readFileSync(resolve("./swagger.json"));
   swagger = JSON.parse(jsonString);
   if ((!swagger.openapi && !swagger.swagger) || (swagger.openapi || swagger.swagger).split('.')[0] !== '3') {
     console.log(chalk.red('当前openapi版本不是3.x.x版本，无法保证生成的api配置全部正确，请酌情使用。'));
@@ -103,25 +107,47 @@ function createActionDirs() {
       actions.push({ path, action, method, summary });
     })
   }
-  if (!fs.existsSync(root + '/src')) {
-    fs.mkdirSync(root + `/src`);
-  }
-  if (!fs.existsSync(root + '/src/apis')) {
-    fs.mkdirSync(root + `/src/apis`);
-  }
   let totalNew = 0;
+  var absPath = resolve(output);
+  if (output.indexOf(':') !== -1) {
+    var pathPartMatchs = absPath.match(/([^\\\/:]+)/g);
+    if (pathPartMatchs.length) {
+      var dir = pathPartMatchs.shift();
+      pathPartMatchs.reduce((pre, current) => {
+        var pathPart = pre + '/' + current
+        if (!fs.existsSync(resolve(pathPart))) {
+          fs.mkdirSync(resolve(pathPart));
+        }
+        return pathPart;
+      }, dir + ':');
+    }
+  }
+  else {
+    var relaPath = absPath.substring(resolve('./').length);
+    var relaPathPartMatchs = relaPath.match(/([^\\\/]+)/g);
+    if (relaPathPartMatchs && relaPathPartMatchs.length) {
+      relaPathPartMatchs.reduce((pre, current) => {
+        var relaPathPart = pre + '/' + current
+        if (!fs.existsSync(resolve(relaPathPart))) {
+          fs.mkdirSync(resolve(relaPathPart));
+        }
+        return relaPathPart;
+      }, '.');
+    }
+  }
+
   actions.forEach((item) => {
     var tags = getTagsByPath(item.path, item.method);
-    var actionPath = `/src/apis/${item.action}`;
+    var actionPath = `${output}/${item.action}`;
     if (tags && tags.length) {
       var tag = tags[0];
-      actionPath = `/src/apis/${tag}/${item.action}`;
-      if (!fs.existsSync(root + `/src/apis/${tag}`)) {
-        fs.mkdirSync(root + `/src/apis/${tag}`);
+      actionPath = `${output}/${tag}/${item.action}`;
+      if (!fs.existsSync(resolve(output + '/' + tag))) {
+        fs.mkdirSync(resolve(output + '/' + tag));
       }
     }
-    if (!fs.existsSync(root + actionPath)) {
-      fs.mkdirSync(root + actionPath);
+    if (!fs.existsSync(resolve(actionPath))) {
+      fs.mkdirSync(resolve(actionPath));
     }
     var summary = ''
     if (item.summary.replaceAll(' ', '')) {
@@ -132,9 +158,9 @@ function createActionDirs() {
     var responseContent = buildResponseInterface(item);
     var indexFileContent = buildIndexFileContent(item, requestBodyContent.def || parameterContent.def, responseContent.def);
     indexFileContent += '\n\n' + (requestBodyContent.model || '') + (parameterContent.model || '') + (responseContent.model || '');
-    fs.writeFileSync(root + actionPath + '/index.http.ts', indexFileContent);
-    fs.writeFileSync(root + actionPath + '/type.d.ts', `declare global {\n  interface HttpApi {\n${summary}    ${item.action}: typeof import("./index.http").default;\n  }\n}\nexport { };`);
-    console.log(chalk.yellow(`生成或更新了接口配置[.${actionPath}]`));
+    fs.writeFileSync(resolve(actionPath + '/index.http.ts'), indexFileContent);
+    fs.writeFileSync(resolve(actionPath + '/type.d.ts'), `declare global {\n  interface HttpApi {\n${summary}    ${item.action}: typeof import("./index.http").default;\n  }\n}\nexport { };`);
+    console.log(chalk.yellow(`生成或更新了接口配置[${actionPath}]`));
     totalNew++;
   });
   console.log(chalk.green(`共生成或更新了${totalNew}个接口的配置！`));
@@ -385,7 +411,7 @@ function getRefObject(ref) {
 }
 
 function getSwaggerFile() {
-  return new Promise((resolve) => {
+  return new Promise((solve) => {
     https
       .get(fileUrl,
         (response) => {
@@ -396,15 +422,15 @@ function getSwaggerFile() {
 
           response.on("end", () => {
             if (data) {
-              fs.writeFileSync(root + "/swagger.json", data);
-              resolve(true);
+              fs.writeFileSync(resolve("./swagger.json"), data);
+              solve(true);
             }
           });
         }
       )
       .on("error", (err) => {
         console.log("Error: " + err.message);
-        resolve(false)
+        solve(false)
       });
   })
 }
