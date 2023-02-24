@@ -50,9 +50,8 @@ async function main() {
   return process.exit();
 }
 
-function pathConvertTOUpperCamelCaseActionName(path) {
-  var methodName = getHttpMethod(path);
-  var operationId = swagger['paths'][path][methodName]['operationId'];
+function pathConvertToUpperCamelCaseActionName(path, method) {
+  var operationId = swagger['paths'][path][method]['operationId'];
   if (operationId) { return operationId; }
   var paths = path.split("/");
   var name = "";
@@ -82,17 +81,26 @@ function pathConvertTOUpperCamelCaseActionName(path) {
 function createActionDirs() {
   var actions = [];
   for (const path in swagger.paths) {
-    let action = pathConvertTOUpperCamelCaseActionName(path);
-    if (actions.indexOf(action) != -1) {
-      if (/(\w+)(\d)$/.test(action)) {
-        action = action.replace(/(\w+)(\d)$/, function (_, $1, $2) {
-          return $1 + (parseInt($2) + 1);
-        });
-      } else {
-        action = action + "_1";
+    var methods = getHttpMethods(path);
+    methods.forEach(method => {
+      var methodUpper = method.replace(/^([a-zA-Z])(\w+)/, (original, $1, $2) => {
+        if ($1 && $2) {
+          return $1.toUpperCase() + $2;
+        }
+        return original;
+      });
+      let action = pathConvertToUpperCamelCaseActionName(path, method) + (methods.length > 1 ? 'Via' + methodUpper : '');
+      if (actions.indexOf(action) != -1) {
+        if (/(\w+)(\d)$/.test(action)) {
+          action = action.replace(/(\w+)(\d)$/, function (_, $1, $2) {
+            return $1 + (parseInt($2) + 1);
+          });
+        } else {
+          action = action + "_1";
+        }
       }
-    }
-    actions.push({ path, action });
+      actions.push({ path, action, method });
+    })
   }
   if (!fs.existsSync(root + '/src')) {
     fs.mkdirSync(root + `/src`);
@@ -102,7 +110,7 @@ function createActionDirs() {
   }
   let totalNew = 0;
   actions.forEach((item) => {
-    var tags = getTagsByPath(item.path);
+    var tags = getTagsByPath(item.path, item.method);
     var actionPath = `/src/apis/${item.action}`;
     if (tags && tags.length) {
       var tag = tags[0];
@@ -127,19 +135,17 @@ function createActionDirs() {
   console.log(chalk.green(`共生成或更新了${totalNew}个接口的配置！`));
 }
 
-function getTagsByPath(path) {
-  var methodName = getHttpMethod(path);
+function getTagsByPath(path, methodName) {
   var config = swagger["paths"][path][methodName];
   return config["tags"];
 }
 
 function buildIndexFileContent(item, paramName, responseName) {
-  var methodName = getHttpMethod(item.path);
   var paramDef = '';
   var paramRef = ''
   var url = '`' + item.path.replace(/\{(\w+)\}/g, '${request.$1}') + '`';
   if (paramName) {
-    if (methodName == 'post' || methodName == 'put') {
+    if (item.method == 'post' || item.method == 'put') {
       paramDef = `\n  data: ${paramName}\n`;
       paramRef = ', data';
       url = '`' + item.path.replace(/\{(\w+)\}/g, '${data.$1}') + '`';
@@ -150,12 +156,11 @@ function buildIndexFileContent(item, paramName, responseName) {
     }
   }
   var responseDef = `<AxiosResponse<${responseName || 'any'}>>`
-  return `import axios, { type AxiosResponse } from "axios";\n\nexport default function ${item.action}(${paramDef}): Promise${responseDef} {\n  return axios.${methodName}(${url}${paramRef});\n}`
+  return `import axios, { type AxiosResponse } from "axios";\n\nexport default function ${item.action}(${paramDef}): Promise${responseDef} {\n  return axios.${item.method}(${url}${paramRef});\n}`
 }
 
 function buildResponseInterface(item) {
-  var methodName = getHttpMethod(item.path);
-  var responses = swagger['paths'][item.path][methodName]['responses'];
+  var responses = swagger['paths'][item.path][item.method]['responses'];
   var listDefs = [];
   var model = '';
   if (responses) {
@@ -171,14 +176,13 @@ function buildResponseInterface(item) {
     }
   }
   return {
-    def: listDefs.join('|'),
+    def: listDefs.join(' | '),
     model
   };
 }
 
 function buildRequestBodyInterface(item) {
-  var methodName = getHttpMethod(item.path);
-  var requestBody = swagger['paths'][item.path][methodName]['requestBody'];
+  var requestBody = swagger['paths'][item.path][item.method]['requestBody'];
   if (!requestBody) { return ''; }
   var schema = getRequestBodySchema(requestBody);
   var shape = handleSchema(schema, item)
@@ -187,8 +191,7 @@ function buildRequestBodyInterface(item) {
 
 function buildParametersInterface(item) {
   var shape = { def: '', model: '' };
-  var methodName = getHttpMethod(item.path);
-  var parameters = swagger['paths'][item.path][methodName]['parameters'];
+  var parameters = swagger['paths'][item.path][item.method]['parameters'];
   if (parameters) {
     var model = `interface ${item.action}Request {\n`;
     var childModel = '';
@@ -215,7 +218,6 @@ function buildParametersInterface(item) {
   }
   return shape;
 }
-
 
 function handleSchema(schema, item) {
   var shape = {
@@ -310,8 +312,8 @@ function handleSchema(schema, item) {
     }
   }
   else if (schema['$ref']) {
-    if (!pathAndInterfaces.find(e => e.path === item.path && e.ref === schema['$ref'])) {
-      pathAndInterfaces.push({ path: item.path, ref: schema['$ref'] })
+    if (!pathAndInterfaces.find(e => e.path === item.path && e.ref === schema['$ref'] && e.method === item.method)) {
+      pathAndInterfaces.push({ path: item.path, ref: schema['$ref'], method: item.method })
       var ref = getRefObject(schema['$ref']);
       if (ref && ref.obj) {
         ref.obj.prop = ref.name;
@@ -351,35 +353,26 @@ function getRequestBodySchema(requestBody) {
   return null;
 }
 
-
-function getHttpMethod(path) {
-  var methodNames = ["post", "get", "delete", "put"];
+function getHttpMethods(path) {
+  var allMethodNames = ["post", "get", "delete", "put"];
   var keys = Object.keys(swagger.paths[path]);
-  var methodName = methodNames.find((e) => keys.indexOf(e) != -1);
-  return methodName;
+  var methodNames = allMethodNames.filter((e) => keys.indexOf(e) != -1);
+  return methodNames;
 }
 
 
 function getRefObject(ref) {
-  try {
-    if (ref && typeof ref === 'string') {
-      var nameIdx = ref.lastIndexOf('/') + 1;
-      var name = ref.substring(nameIdx);
-      let fml = ref.replaceAll('/', '.').replace('#', 'swagger');
-      var dynObj = eval(fml);
-      return {
-        name: name,
-        obj: dynObj
-      }
+  if (ref && typeof ref === 'string') {
+    var nameIdx = ref.lastIndexOf('/') + 1;
+    var name = ref.substring(nameIdx);
+    let fml = ref.replaceAll('/', '.').replace('#', 'swagger');
+    var dynObj = eval(fml);
+    return {
+      name: name,
+      obj: dynObj
     }
-    else {
-
-    }
-    return null;
   }
-  catch (ex) {
-
-  }
+  return null;
 }
 
 function getSwaggerFile() {
