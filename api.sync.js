@@ -155,8 +155,12 @@ function buildIndexFileContent(item, paramName, responseName) {
       paramRef = ', { params: request }';
     }
   }
+  var summary = ''
+  if (swagger.paths[item.path][item.method]['summary']) {
+    summary = `/**\n * ${swagger.paths[item.path][item.method]['summary']}\n */\n`
+  }
   var responseDef = `<AxiosResponse<${responseName || 'any'}>>`
-  return `import axios, { type AxiosResponse } from "axios";\n\nexport default function ${item.action}(${paramDef}): Promise${responseDef} {\n  return axios.${item.method}(${url}${paramRef});\n}`
+  return `import axios, { type AxiosResponse } from "axios";\n\n${summary}export default function ${item.action}(${paramDef}): Promise${responseDef} {\n  return axios.${item.method}(${url}${paramRef});\n}`
 }
 
 function buildResponseInterface(item) {
