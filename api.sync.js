@@ -153,6 +153,9 @@ function createActionDirs() {
     if (item.summary.replaceAll(' ', '')) {
       summary = `    /**\n     * ${item.summary}\n     */\n`
     }
+    if (item.path === '/api/sto/in/attachment/delete') {
+      console.log();
+    }
     var requestBodyContent = buildRequestBodyInterface(item);
     var parameterContent = buildParametersInterface(item);
     var responseContent = buildResponseInterface(item);
@@ -304,26 +307,28 @@ function handleSchema(schema, item) {
     if (schema.name) {
       shape.def = '  ' + schema.name + nullable + ' : object;\n'
     }
-    else if (schema.prop && schema.properties) {
+    else if (schema.prop) {
       shape.def = schema.prop;
       var model = `interface ${schema.prop} {\n`;
       var childModel = '';
-      for (var prop in schema.properties) {
-        var propSchema = schema.properties[prop];
-        propSchema.prop = prop;
-        var propShape = handleSchema(propSchema, item);
-        var comment = ''
-        if (propSchema.description) {
-          comment += `   * ${propSchema.description}\n`
+      if (schema.properties && schema.properties.length) {
+        for (var prop in schema.properties) {
+          var propSchema = schema.properties[prop];
+          propSchema.prop = prop;
+          var propShape = handleSchema(propSchema, item);
+          var comment = ''
+          if (propSchema.description) {
+            comment += `   * ${propSchema.description}\n`
+          }
+          if (propSchema.format) {
+            comment += `   * format: ${propSchema.format}\n`
+          }
+          if (comment) {
+            model += `  /**\n${comment}   */\n`
+          }
+          model += '  ' + (prop + (propSchema.nullable ? '?' : '') + ': ' + propShape.def) + ';\n';
+          childModel += propShape.model;
         }
-        if (propSchema.format) {
-          comment += `   * format: ${propSchema.format}\n`
-        }
-        if (comment) {
-          model += `  /**\n${comment}   */\n`
-        }
-        model += '  ' + (prop + (propSchema.nullable ? '?' : '') + ': ' + propShape.def) + ';\n';
-        childModel += propShape.model;
       }
       model += '}\n\n'
       shape.model = model;
