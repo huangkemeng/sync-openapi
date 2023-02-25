@@ -103,7 +103,7 @@ function createActionDirs() {
           action = action + "_1";
         }
       }
-      var summary = swagger.paths[path][method]['summary']
+      var summary = swagger.paths[path][method]['summary'] || ''
       actions.push({ path, action, method, summary });
     })
   }
