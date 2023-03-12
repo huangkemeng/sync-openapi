@@ -311,7 +311,7 @@ function handleSchema(schema, item) {
       shape.def = schema.prop;
       var model = `interface ${schema.prop} {\n`;
       var childModel = '';
-      if (schema.properties && schema.properties.length) {
+      if (schema.properties && (Object.keys(schema.properties).length || schema.properties.length)) {
         for (var prop in schema.properties) {
           var propSchema = schema.properties[prop];
           propSchema.prop = prop;
