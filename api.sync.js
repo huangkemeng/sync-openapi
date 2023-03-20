@@ -153,9 +153,6 @@ function createActionDirs() {
     if (item.summary.replaceAll(' ', '')) {
       summary = `    /**\n     * ${item.summary}\n     */\n`
     }
-    if (item.path === '/api/sto/in/attachment/delete') {
-      console.log();
-    }
     var requestBodyContent = buildRequestBodyInterface(item);
     var parameterContent = buildParametersInterface(item);
     var responseContent = buildResponseInterface(item);
@@ -237,6 +234,9 @@ function buildParametersInterface(item) {
       var nullable = !parameter.required ? '?' : ''
       if (parameter.required) {
         model += `  /**\n   * required: ${parameter.required}\n   */\n`
+      }
+      if (parameter.description) {
+        model += `  /**\n   * ${parameter.description}\n   */\n`
       }
       if (parameter.schema) {
         var parameterShape = handleSchema(parameter.schema, item)
