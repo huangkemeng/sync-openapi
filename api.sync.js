@@ -231,8 +231,8 @@ function buildParametersInterface(item) {
     var model = `interface ${item.action}Request {\n`;
     var childModel = '';
     parameters.forEach(parameter => {
-      var nullable = !parameter.required ? '?' : ''
-      if (parameter.required) {
+      var nullable = !parameter.required ? ' | null' : ''
+      if (parameter.required !== undefined) {
         model += `  /**\n   * required: ${parameter.required}\n   */\n`
       }
       if (parameter.description) {
@@ -240,7 +240,7 @@ function buildParametersInterface(item) {
       }
       if (parameter.schema) {
         var parameterShape = handleSchema(parameter.schema, item)
-        model += '  ' + parameter.name + nullable + ': ' + parameterShape.def + ';\n';
+        model += '  ' + parameter.name + ': ' + parameterShape.def + nullable + ';\n';
         childModel += parameterShape.model;
       }
       else {
@@ -266,10 +266,10 @@ function handleSchema(schema, item) {
   if (!schema) {
     return shape;
   }
-  var nullable = schema.nullable ? '?' : '';
+  var nullable = schema.nullable ? ' | null' : '';
   if (schema.type == 'integer' || schema.type == 'number') {
     if (schema.name) {
-      shape.def = '  ' + schema.name + nullable + ' : number;\n'
+      shape.def = '  ' + schema.name + ` : number${nullable};\n`
     }
     else if (schema.prop && schema.enum) {
       shape.def = schema.prop;
@@ -284,7 +284,7 @@ function handleSchema(schema, item) {
   }
   else if (schema.type == 'boolean') {
     if (schema.name) {
-      shape.def = '  ' + schema.name + nullable + ' : boolean;\n'
+      shape.def = '  ' + schema.name + ` : boolean${nullable};\n`
     }
     else {
       shape.def = 'boolean';
@@ -292,7 +292,7 @@ function handleSchema(schema, item) {
   }
   else if (schema.type == 'string') {
     if (schema.name) {
-      shape.def = '  ' + schema.name + nullable + ' : string;\n'
+      shape.def = '  ' + schema.name + ` : string${nullable};\n`
     }
     else {
       if (schema.format === 'binary') {
@@ -305,7 +305,7 @@ function handleSchema(schema, item) {
   }
   else if (schema.type == 'object') {
     if (schema.name) {
-      shape.def = '  ' + schema.name + nullable + ' : object;\n'
+      shape.def = '  ' + schema.name + ` : object${nullable};\n`
     }
     else if (schema.prop) {
       shape.def = schema.prop;
@@ -326,7 +326,8 @@ function handleSchema(schema, item) {
           if (comment) {
             model += `  /**\n${comment}   */\n`
           }
-          model += '  ' + (prop + (propSchema.nullable ? '?' : '') + ': ' + propShape.def) + ';\n';
+          var canNull = propSchema.nullable ? ' | null' : '';
+          model += '  ' + prop + ': ' + propShape.def + canNull + ';\n';
           childModel += propShape.model;
         }
       }
@@ -369,7 +370,7 @@ function handleSchema(schema, item) {
   }
   else if (schema.type == 'array') {
     if (schema.name) {
-      shape.def = '  ' + schema.name + nullable + ' : [];\n'
+      shape.def = '  ' + schema.name + ` : []${nullable};\n`
     }
     else if (schema.items) {
       var refShape = handleSchema(schema.items, item);
