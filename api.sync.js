@@ -135,13 +135,16 @@ function createActionDirs() {
       }, '.');
     }
   }
-
+  var tagAndTypes = []
   actions.forEach((item) => {
+    var tagAndType = { name: '未分组', value: [] }
     var tags = getTagsByPath(item.path, item.method);
     var actionPath = `${output}/${item.action}`;
     if (tags && tags.length) {
       var tag = tags[0];
+      tagAndType.name = tag;
       actionPath = `${output}/${tag}/${item.action}`;
+      tagAndType.path = `./${tag}/${item.action}/index.http.ts`
       if (!fs.existsSync(resolve(output + '/' + tag))) {
         fs.mkdirSync(resolve(output + '/' + tag));
       }
@@ -162,8 +165,56 @@ function createActionDirs() {
     fs.writeFileSync(resolve(actionPath + '/type.d.ts'), `declare global {\n  interface HttpApi {\n${summary}    ${item.action}: typeof import("./index.http").default;\n  }\n}\nexport { };`);
     console.log(chalk.yellow(`生成或更新了接口配置[${actionPath}]`));
     totalNew++;
+    if (requestBodyContent.def) {
+      tagAndType.value.push({ def: requestBodyContent.def, typeName: requestBodyContent.def, path: `./${item.action}/index.http.ts` });
+    }
+    if (parameterContent.def) {
+      tagAndType.value.push({ def: parameterContent.def, typeName: parameterContent.def, path: `./${item.action}/index.http.ts` });
+    }
+    if (tagAndType.value.length) {
+      var addedTagAndType = tagAndTypes.find(e => tagAndType.name === e.name);
+      if (addedTagAndType) {
+        tagAndType.value.forEach(x => {
+          if (addedTagAndType.value.find(e => x.typeName === e.typeName)) {
+            addedTagAndType.value.push({ def: x.def, typeName: `${item.action}_${x.typeName}`, path: x.path })
+          }
+          else {
+            addedTagAndType.value.push(x);
+          }
+        })
+      }
+      else {
+        tagAndTypes.push(tagAndType);
+      }
+    }
   });
+  var globalApiTypeDeclare = generateGlobalApiTypeDeclare(tagAndTypes);
+  if (globalApiTypeDeclare) {
+    fs.writeFileSync(resolve(output + '/ApiTypeDeclare.d.ts'), globalApiTypeDeclare);
+  }
   console.log(chalk.green(`共生成或更新了${totalNew}个接口的配置！`));
+}
+
+function generateGlobalApiTypeDeclare(tagAndTypes) {
+  if (tagAndTypes && tagAndTypes.length) {
+    var declareString = `declare namespace ApiTypeDeclare {\n`
+    tagAndTypes.forEach(tag => {
+      if (tag.name === '未分组') {
+        tag.value.forEach(type => {
+          declareString += `  type ${type.typeName} = import("${type.path}").${type.def};\n`
+        })
+      }
+      else {
+        declareString += `  namespace ${tag.name} {\n`;
+        tag.value.forEach(type => {
+          declareString += `    type ${type.typeName} = import("${type.path}").${type.def};\n`
+        })
+        declareString += '  }\n'
+      }
+    })
+    declareString += "}"
+    return declareString;
+  }
 }
 
 function getTagsByPath(path, methodName) {
@@ -221,6 +272,9 @@ function buildRequestBodyInterface(item) {
   if (!requestBody) { return ''; }
   var schema = getRequestBodySchema(requestBody);
   var shape = handleSchema(schema, item)
+  if (shape && shape.model) {
+    shape.model = 'export ' + shape.model
+  }
   return shape;
 }
 
@@ -228,7 +282,7 @@ function buildParametersInterface(item) {
   var shape = { def: '', model: '' };
   var parameters = swagger['paths'][item.path][item.method]['parameters'];
   if (parameters) {
-    var model = `interface ${item.action}Request {\n`;
+    var model = `export interface ${item.action}Request {\n`;
     var childModel = '';
     parameters.forEach(parameter => {
       var nullable = !parameter.required ? ' | null' : ''
