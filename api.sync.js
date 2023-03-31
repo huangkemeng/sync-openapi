@@ -144,7 +144,6 @@ function createActionDirs() {
       var tag = tags[0];
       tagAndType.name = tag;
       actionPath = `${output}/${tag}/${item.action}`;
-      tagAndType.path = `./${tag}/${item.action}/index.http.ts`
       if (!fs.existsSync(resolve(output + '/' + tag))) {
         fs.mkdirSync(resolve(output + '/' + tag));
       }
@@ -166,10 +165,10 @@ function createActionDirs() {
     console.log(chalk.yellow(`生成或更新了接口配置[${actionPath}]`));
     totalNew++;
     if (requestBodyContent.def) {
-      tagAndType.value.push({ def: requestBodyContent.def, typeName: requestBodyContent.def, path: `./${item.action}/index.http.ts` });
+      tagAndType.value.push({ def: requestBodyContent.def, typeName: requestBodyContent.def, path: `${item.action}/index.http.ts` });
     }
     if (parameterContent.def) {
-      tagAndType.value.push({ def: parameterContent.def, typeName: parameterContent.def, path: `./${item.action}/index.http.ts` });
+      tagAndType.value.push({ def: parameterContent.def, typeName: parameterContent.def, path: `${item.action}/index.http.ts` });
     }
     if (tagAndType.value.length) {
       var addedTagAndType = tagAndTypes.find(e => tagAndType.name === e.name);
@@ -201,13 +200,13 @@ function generateGlobalApiTypeDeclare(tagAndTypes) {
     tagAndTypes.forEach(tag => {
       if (tag.name === '未分组') {
         tag.value.forEach(type => {
-          declareString += `  type ${type.typeName} = import("${type.path}").${type.def};\n`
+          declareString += `  type ${type.typeName} = import("./${type.path}").${type.def};\n`
         })
       }
       else {
         declareString += `  namespace ${tag.name} {\n`;
         tag.value.forEach(type => {
-          declareString += `    type ${type.typeName} = import("${type.path}").${type.def};\n`
+          declareString += `    type ${type.typeName} = import("./${tag.name}/${type.path}").${type.def};\n`
         })
         declareString += '  }\n'
       }
