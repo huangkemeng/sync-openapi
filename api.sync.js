@@ -292,7 +292,10 @@ function buildParametersInterface(item) {
         model += `  /**\n   * ${parameter.description}\n   */\n`
       }
       if (parameter.schema) {
-        var parameterShape = handleSchema(parameter.schema, item)
+        var parameterShape = handleSchema(parameter.schema, item);
+        if (/[^a-zA-Z0-9]/.test(parameter.name)) {
+          parameter.name = `"${parameter.name}"`
+        }
         model += '  ' + parameter.name + ': ' + parameterShape.def + nullable + ';\n';
         childModel += parameterShape.model;
       }
@@ -318,6 +321,9 @@ function handleSchema(schema, item) {
   }
   if (!schema) {
     return shape;
+  }
+  if (schema.name && /[^a-zA-Z0-9]/.test(schema.name)) {
+    schema.name = `"${schema.name}"`
   }
   var nullable = schema.nullable ? ' | null' : '';
   if (schema.type == 'integer' || schema.type == 'number') {
