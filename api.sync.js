@@ -284,7 +284,7 @@ function buildParametersInterface(item) {
     var model = `export interface ${item.action}Request {\n`;
     var childModel = '';
     parameters.forEach(parameter => {
-      var nullable = !parameter.required ? ' | null' : ''
+      var nullable = !parameter.required ? ' | undefined' : ''
       if (parameter.required !== undefined) {
         model += `  /**\n   * required: ${parameter.required}\n   */\n`
       }
@@ -325,7 +325,7 @@ function handleSchema(schema, item) {
   if (schema.name && /[^a-zA-Z0-9]/.test(schema.name)) {
     schema.name = `"${schema.name}"`
   }
-  var nullable = schema.nullable ? ' | null' : '';
+  var nullable = schema.nullable ? ' | undefined' : '';
   if (schema.type == 'integer' || schema.type == 'number') {
     if (schema.name) {
       shape.def = '  ' + schema.name + ` : number${nullable};\n`
@@ -385,7 +385,7 @@ function handleSchema(schema, item) {
           if (comment) {
             model += `  /**\n${comment}   */\n`
           }
-          var canNull = propSchema.nullable ? ' | null' : '';
+          var canNull = propSchema.nullable ? ' | undefined' : '';
           model += '  ' + prop + ': ' + propShape.def + canNull + ';\n';
           childModel += propShape.model;
         }
