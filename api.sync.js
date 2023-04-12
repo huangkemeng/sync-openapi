@@ -3,6 +3,7 @@ const fs = require("fs");
 let https = require("https");
 const chalk = require("chalk");
 const { resolve } = require("path");
+const { log } = require("console");
 const args = process.argv;
 let swagger = {};
 const pathAndInterfaces = [];
@@ -165,16 +166,29 @@ function createActionDirs() {
     console.log(chalk.yellow(`生成或更新了接口配置[${actionPath}]`));
     totalNew++;
     if (requestBodyContent.def) {
-      tagAndType.value.push({ def: requestBodyContent.def, typeName: requestBodyContent.def, path: `${item.action}/index.http.ts` });
+      let pureDef = requestBodyContent.def.replaceAll('[]', '');
+      if (pureDef && !isBaseType(pureDef)) {
+        tagAndType.value.push({ def: pureDef, typeName: pureDef, path: `${item.action}/index.http.ts` });
+      }
     }
     if (parameterContent.def) {
-      tagAndType.value.push({ def: parameterContent.def, typeName: parameterContent.def, path: `${item.action}/index.http.ts` });
+      let pureDef = parameterContent.def.replaceAll('[]', '');
+      if (pureDef && !isBaseType(pureDef)) {
+        tagAndType.value.push({ def: pureDef, typeName: pureDef, path: `${item.action}/index.http.ts` });
+      }
+    }
+    if (responseContent.def) {
+      let pureDef = responseContent.def.replaceAll('[]', '');
+      if (pureDef && !isBaseType(pureDef)) {
+        tagAndType.value.push({ def: pureDef, typeName: pureDef, path: `${item.action}/index.http.ts` });
+      }
     }
     if (tagAndType.value.length) {
       var addedTagAndType = tagAndTypes.find(e => tagAndType.name === e.name);
       if (addedTagAndType) {
         tagAndType.value.forEach(x => {
-          if (addedTagAndType.value.find(e => x.typeName === e.typeName)) {
+          let existed = addedTagAndType.value.find(e => x.typeName === e.typeName);
+          if (existed) {
             addedTagAndType.value.push({ def: x.def, typeName: `${item.action}_${x.typeName}`, path: x.path })
           }
           else {
@@ -192,6 +206,10 @@ function createActionDirs() {
     fs.writeFileSync(resolve(output + '/ApiTypeDeclare.d.ts'), globalApiTypeDeclare);
   }
   console.log(chalk.green(`共生成或更新了${totalNew}个接口的配置！`));
+}
+
+function isBaseType(type) {
+  return ['integer', 'number', 'boolean', 'string', 'BinaryData', 'FormData', 'object', 'array', '[]'].indexOf(type) !== -1;
 }
 
 function generateGlobalApiTypeDeclare(tagAndTypes) {
@@ -255,7 +273,7 @@ function buildResponseInterface(item) {
         if (schema) {
           var shape = handleSchema(schema, item)
           listDefs.push(shape.def);
-          model += shape.model;
+          model += 'export ' + shape.model;
         }
       }
     }
