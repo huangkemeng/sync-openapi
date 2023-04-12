@@ -273,7 +273,7 @@ function buildResponseInterface(item) {
         if (schema) {
           var shape = handleSchema(schema, item)
           listDefs.push(shape.def);
-          model += 'export ' + shape.model;
+          model += shape.model;
         }
       }
     }
@@ -289,9 +289,6 @@ function buildRequestBodyInterface(item) {
   if (!requestBody) { return ''; }
   var schema = getRequestBodySchema(requestBody);
   var shape = handleSchema(schema, item)
-  if (shape && shape.model) {
-    shape.model = 'export ' + shape.model
-  }
   return shape;
 }
 
@@ -353,7 +350,7 @@ function handleSchema(schema, item) {
       if (schema.description) {
         shape.model += `  /**\n   * ${schema.description}\n   */\n`
       }
-      shape.model += `enum ${schema.prop} {\n${schema.enum.map(e => '  ' + (schema.prop + '_' + e).replace(/\W/g, '_') + ' = ' + e).join(',\n')}\n}\n\n`
+      shape.model += `export enum ${schema.prop} {\n${schema.enum.map(e => '  ' + (schema.prop + '_' + e).replace(/\W/g, '_') + ' = ' + e).join(',\n')}\n}\n\n`
     }
     else {
       shape.def = 'number';
@@ -386,7 +383,7 @@ function handleSchema(schema, item) {
     }
     else if (schema.prop) {
       shape.def = schema.prop;
-      var model = `interface ${schema.prop} {\n`;
+      var model = `export interface ${schema.prop} {\n`;
       var childModel = '';
       if (schema.properties && (Object.keys(schema.properties).length || schema.properties.length)) {
         for (var prop in schema.properties) {
