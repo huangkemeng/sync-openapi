@@ -254,6 +254,14 @@ function buildIndexFileContent(item, paramName, responseName) {
       paramRef = ', { params: request, signal: signal }';
     }
   }
+  else {
+    if (item.method == 'post' || item.method == 'put') {
+      paramRef = ', null, { signal: signal }';
+    }
+    else {
+      paramRef = ', { signal: signal }';
+    }
+  }
   var summary = ''
   if (item.summary.replaceAll(' ', '')) {
     summary = `/**\n * ${item.summary}\n */\n`
