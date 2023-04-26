@@ -252,7 +252,7 @@ function buildIndexFileContent(item, paramName, responseName) {
     }
     else {
       paramDef = `\n  request: ${paramName},\n`;
-      paramRef = ', { params: qs.stringify(request, { indices: false }), signal: signal }';
+      paramRef = ', { \n    params: request,\n    paramsSerializer: function (params) {\n      return qs.stringify(params, { indices: false });\n    },\n    signal: signal\n  }';
       includeQs = '\nimport qs from "qs";'
     }
   }
