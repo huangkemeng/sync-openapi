@@ -243,6 +243,7 @@ function buildIndexFileContent(item, paramName, responseName) {
   var paramDef = '';
   var paramRef = ''
   var url = '`' + item.path.replace(/\{(\w+)\}/g, '${request.$1}') + '`';
+  var includeQs = '';
   if (paramName) {
     if (item.method == 'post' || item.method == 'put') {
       paramDef = `\n  data: ${paramName},\n`;
@@ -251,7 +252,8 @@ function buildIndexFileContent(item, paramName, responseName) {
     }
     else {
       paramDef = `\n  request: ${paramName},\n`;
-      paramRef = ', { params: request, signal: signal }';
+      paramRef = ', { params: qs.stringify(request, { indices: false }), signal: signal }';
+      includeQs = '\nimport qs from "qs";'
     }
   }
   else {
@@ -267,7 +269,7 @@ function buildIndexFileContent(item, paramName, responseName) {
     summary = `/**\n * ${item.summary}\n */\n`
   }
   var responseDef = `<AxiosResponse<${responseName || 'any'}>>`
-  return `import axios, { type AxiosResponse } from "axios";\n\n${summary}export default function ${item.action}(${paramDef}  signal?: AbortSignal\n): Promise${responseDef} {\n  return axios.${item.method}(${url}${paramRef});\n}`
+  return `import axios, { type AxiosResponse } from "axios";${includeQs}\n\n${summary}export default function ${item.action}(${paramDef}  signal?: AbortSignal\n): Promise${responseDef} {\n  return axios.${item.method}(${url}${paramRef});\n}`
 }
 
 function buildResponseInterface(item) {
