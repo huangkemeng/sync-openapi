@@ -58,3 +58,4 @@ typings/
 .env
 swagger.json
 src
+.idea

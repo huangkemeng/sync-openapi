@@ -135,13 +135,16 @@ function createActionDirs() {
         }
     }
     var tagAndTypes = []
+    var tagAndApis = []
     actions.forEach((item) => {
-        var tagAndType = {name: '未分组', value: []}
+        var tagAndType = {name: 'unGrouped', value: []}
+        var tagAndApi = {name: 'unGrouped', value: []}
         var tags = getTagsByPath(item.path, item.method);
         var actionPath = `${output}/${item.action}`;
         if (tags && tags.length) {
             var tag = tags[0];
             tagAndType.name = tag;
+            tagAndApi.name = tag;
             actionPath = `${output}/${tag}/${item.action}`;
             if (!fs.existsSync(resolve(output + '/' + tag))) {
                 fs.mkdirSync(resolve(output + '/' + tag));
@@ -169,8 +172,9 @@ function createActionDirs() {
         var indexFileContent = buildIndexFileContent(item, paramTypeName, responseContent.def);
         indexFileContent += '\n\n' + (requestBodyContent.model || '') + (parameterContent.model || '') + (responseContent.model || '');
         fs.writeFileSync(resolve(actionPath + '/index.http.ts'), indexFileContent);
-        fs.writeFileSync(resolve(actionPath + '/type.d.ts'), `declare global {\n  interface HttpApi {\n${summary}    ${item.action}: typeof import("./index.http").default;\n  }\n}\nexport { };`);
+        // fs.writeFileSync(resolve(actionPath + '/type.d.ts'), `declare global {\n  interface HttpApi {\n${summary}    ${item.action}: typeof import("./index.http").default;\n  }\n}\nexport { };`);
         console.log(chalk.yellow(`生成或更新了接口配置[${actionPath}]`));
+        tagAndApi.value.push({apiName: item.action, def: item.action, path: `${item.action}/index.http`})
         totalNew++;
         if (requestBodyContent.def) {
             let pureDef = requestBodyContent.def.replaceAll('[]', '');
@@ -205,10 +209,33 @@ function createActionDirs() {
                 tagAndTypes.push(tagAndType);
             }
         }
+
+        if (tagAndApi.value.length) {
+            var addedTagAndApi = tagAndApis.find(e => tagAndApi.name === e.name);
+            if (addedTagAndApi) {
+                tagAndApi.value.forEach(x => {
+                    let existedApi = addedTagAndApi.value.find(e => x.apiName === e.apiName);
+                    if (existedApi) {
+                        addedTagAndApi.value.push({def: x.def, apiName: `${item.action}_${x.name}`, path: x.path})
+                    } else {
+                        addedTagAndApi.value.push(x);
+                    }
+                })
+            } else {
+                tagAndApis.push(tagAndApi);
+            }
+        }
     });
-    var globalApiTypeDeclare = generateGlobalApiTypeDeclare(tagAndTypes);
-    if (globalApiTypeDeclare) {
-        fs.writeFileSync(resolve(output + '/ApiTypeDeclare.d.ts'), globalApiTypeDeclare);
+    var apiTClientDeclare = generateGlobalApiClientDeclare(tagAndApis);
+    if (apiTClientDeclare) {
+        fs.writeFileSync(resolve(output + '/ApiClient.ts'), apiTClientDeclare);
+    }
+    var hasT = args.indexOf("-t") !== -1;
+    if (hasT) {
+        var globalApiTypeDeclare = generateGlobalApiTypeDeclare(tagAndTypes);
+        if (globalApiTypeDeclare) {
+            fs.writeFileSync(resolve(output + '/ApiTypes.ts'), globalApiTypeDeclare);
+        }
     }
     console.log(chalk.green(`共生成或更新了${totalNew}个接口的配置！`));
 }
@@ -217,23 +244,49 @@ function isBaseType(type) {
     return ['integer', 'number', 'boolean', 'string', 'BinaryData', 'FormData', 'object', 'array', '[]'].indexOf(type) !== -1;
 }
 
-function generateGlobalApiTypeDeclare(tagAndTypes) {
-    if (tagAndTypes && tagAndTypes.length) {
-        var declareString = `declare namespace ApiTypeDeclare {\n`
-        tagAndTypes.forEach(tag => {
-            if (tag.name === '未分组') {
+function generateGlobalApiClientDeclare(tagAndApis) {
+    if (tagAndApis && tagAndApis.length) {
+        var declareImport = '';
+        var declareApi = `const ApiClient = {\n`
+        tagAndApis.forEach(tag => {
+            if (tag.name === 'unGrouped') {
                 tag.value.forEach(type => {
-                    declareString += `  type ${type.typeName} = import("./${type.path}").${type.def};\n`
+                    declareImport += `import ${type.apiName} from "./${type.path}"\n`
+                    declareApi += `    ${type.apiName}: ${type.apiName},\n`
                 })
             } else {
-                declareString += `  namespace ${tag.name} {\n`;
+                declareApi += `    ${tag.name}: {\n`;
                 tag.value.forEach(type => {
-                    declareString += `    type ${type.typeName} = import("./${tag.name}/${type.path}").${type.def};\n`
+                    declareImport += `import ${type.apiName} from "./${tag.name}/${type.path}"\n`
+                    declareApi += `        ${type.apiName}: ${type.apiName},\n`
                 })
-                declareString += '  }\n'
+                declareApi += '    },\n'
             }
         })
-        declareString += "}"
+        declareApi += "}\n"
+        declareApi += "export default ApiClient"
+        return `${declareImport}\n${declareApi}`;
+    }
+}
+
+function generateGlobalApiTypeDeclare(tagAndTypes) {
+    if (tagAndTypes && tagAndTypes.length) {
+        var declareString = `type ApiTypes = {\n`
+        tagAndTypes.forEach(tag => {
+            if (tag.name === 'unGrouped') {
+                tag.value.forEach(type => {
+                    declareString += `    ${type.typeName}: import("./${type.path}").${type.def};\n`
+                })
+            } else {
+                declareString += `    ${tag.name}: {\n`;
+                tag.value.forEach(type => {
+                    declareString += `        ${type.typeName}: import("./${tag.name}/${type.path}").${type.def};\n`
+                })
+                declareString += '    }\n'
+            }
+        })
+        declareString += "}\n"
+        declareString += "export default ApiTypes"
         return declareString;
     }
 }
