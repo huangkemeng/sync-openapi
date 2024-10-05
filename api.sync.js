@@ -157,7 +157,16 @@ function createActionDirs() {
         var requestBodyContent = buildRequestBodyInterface(item);
         var parameterContent = buildParametersInterface(item);
         var responseContent = buildResponseInterface(item);
-        var indexFileContent = buildIndexFileContent(item, requestBodyContent.def || parameterContent.def, responseContent.def);
+        var paramTypeName = '';
+        if (requestBodyContent.def) {
+            paramTypeName = requestBodyContent.def;
+            if (parameterContent.def) {
+                paramTypeName += ` & ${parameterContent.def}`;
+            }
+        } else {
+            paramTypeName = parameterContent.def;
+        }
+        var indexFileContent = buildIndexFileContent(item, paramTypeName, responseContent.def);
         indexFileContent += '\n\n' + (requestBodyContent.model || '') + (parameterContent.model || '') + (responseContent.model || '');
         fs.writeFileSync(resolve(actionPath + '/index.http.ts'), indexFileContent);
         fs.writeFileSync(resolve(actionPath + '/type.d.ts'), `declare global {\n  interface HttpApi {\n${summary}    ${item.action}: typeof import("./index.http").default;\n  }\n}\nexport { };`);
@@ -242,18 +251,18 @@ function buildIndexFileContent(item, paramName, responseName) {
     if (paramName) {
         if (item.method == 'post' || item.method == 'put' || item.method == 'patch') {
             paramDef = `\n  data: ${paramName},\n`;
-            paramRef = ', data, { signal: signal }';
+            paramRef = ', data, { ...config, signal: signal }';
             url = '`' + item.path.replace(/\{(\w+)\}/g, '${data.$1}') + '`';
         } else {
             paramDef = `\n  request: ${paramName},\n`;
-            paramRef = ', { \n    params: request,\n    paramsSerializer: function (params) {\n      return qs.stringify(params, { indices: false });\n    },\n    signal: signal\n  }';
+            paramRef = ', {\n    ...config,\n    params: request,\n    paramsSerializer: function (params) {\n      return qs.stringify(params, { indices: false });\n    },\n    signal: signal\n  }';
             includeQs = '\nimport qs from "qs";'
         }
     } else {
         if (item.method == 'post' || item.method == 'put' || item.method == 'patch') {
-            paramRef = ', null, { signal: signal }';
+            paramRef = ', null, { ...config, signal: signal }';
         } else {
-            paramRef = ', { signal: signal }';
+            paramRef = ', { ...config, signal: signal }';
         }
     }
     var summary = ''
@@ -261,7 +270,7 @@ function buildIndexFileContent(item, paramName, responseName) {
         summary = `/**\n * ${item.summary}\n */\n`
     }
     var responseDef = `<AxiosResponse<${responseName || 'any'}>>`
-    return `import axios, { type AxiosResponse } from "axios";${includeQs}\n\n${summary}export default function ${item.action}(${paramDef}  signal?: AbortSignal\n): Promise${responseDef} {\n  return axios.${item.method}(${url}${paramRef});\n}`
+    return `import axios, { type AxiosRequestConfig, type AxiosResponse } from "axios";${includeQs}\n\n${summary}export default function ${item.action}(${paramDef}  signal?: AbortSignal,\n  config?: AxiosRequestConfig): Promise${responseDef} {\n  return axios.${item.method}(${url}${paramRef});\n}`
 }
 
 function buildResponseInterface(item) {
