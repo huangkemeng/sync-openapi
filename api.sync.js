@@ -2,8 +2,8 @@
 const fs = require("fs");
 let https = require("https");
 const chalk = require("chalk");
-const {resolve} = require("path");
-const {log} = require("console");
+const { resolve } = require("path");
+const { log } = require("console");
 const args = process.argv;
 let swagger = {};
 const pathAndInterfaces = [];
@@ -38,7 +38,7 @@ async function main() {
         console.log(chalk.blue('使用测试swagger配置！'));
         fs.copyFileSync(resolve('./test-swagger.json'), resolve('./swagger.json'));
     }
-    
+
     const existSwagger = fs.existsSync(resolve('./swagger.json'));
     var hasF = args.indexOf("-f") !== -1;
     if (!useTestSwagger && (!existSwagger || hasF)) {
@@ -47,7 +47,7 @@ async function main() {
         if (!downResult) {
             return console.log(chalk.red('swagger配置请求失败,请检查网络或url是否设置正确！'));
         }
-    } else if(!useTestSwagger) {
+    } else if (!useTestSwagger) {
         console.log(chalk.blue('使用已存在的swagger配置！'));
     }
     const jsonString = fs.readFileSync(resolve("./swagger.json"));
@@ -113,7 +113,7 @@ function createActionDirs() {
                 }
             }
             var summary = swagger.paths[path][method]['summary'] || ''
-            actions.push({path, action, method, summary});
+            actions.push({ path, action, method, summary });
         })
     }
     let totalNew = 0;
@@ -146,8 +146,8 @@ function createActionDirs() {
     var tagAndTypes = []
     var tagAndApis = []
     actions.forEach((item) => {
-        var tagAndType = {name: 'unGrouped', value: []}
-        var tagAndApi = {name: 'unGrouped', value: []}
+        var tagAndType = { name: 'unGrouped', value: [] }
+        var tagAndApi = { name: 'unGrouped', value: [] }
         var tags = getTagsByPath(item.path, item.method);
         var actionPath = `${output}/${item.action}`;
         if (tags && tags.length) {
@@ -174,24 +174,24 @@ function createActionDirs() {
         fs.writeFileSync(resolve(actionPath + '/index.http.ts'), indexFileContent);
         // fs.writeFileSync(resolve(actionPath + '/type.d.ts'), `declare global {\n  interface HttpApi {\n${summary}    ${item.action}: typeof import("./index.http").default;\n  }\n}\nexport { };`);
         console.log(chalk.yellow(`生成或更新了接口配置[${actionPath}]`));
-        tagAndApi.value.push({apiName: item.action, def: item.action, path: `${item.action}/index.http`})
+        tagAndApi.value.push({ apiName: item.action, def: item.action, path: `${item.action}/index.http` })
         totalNew++;
         if (requestBodyContent.def) {
             let pureDef = requestBodyContent.def.replaceAll('[]', '');
             if (pureDef && !isBaseType(pureDef)) {
-                tagAndType.value.push({def: pureDef, typeName: pureDef, path: `${item.action}/index.http.ts`});
+                tagAndType.value.push({ def: pureDef, typeName: pureDef, path: `${item.action}/index.http.ts` });
             }
         }
         if (parameterContent.def) {
             let pureDef = parameterContent.def.replaceAll('[]', '');
             if (pureDef && !isBaseType(pureDef)) {
-                tagAndType.value.push({def: pureDef, typeName: pureDef, path: `${item.action}/index.http.ts`});
+                tagAndType.value.push({ def: pureDef, typeName: pureDef, path: `${item.action}/index.http.ts` });
             }
         }
         if (responseContent.def) {
             let pureDef = responseContent.def.replaceAll('[]', '');
             if (pureDef && !isBaseType(pureDef)) {
-                tagAndType.value.push({def: pureDef, typeName: pureDef, path: `${item.action}/index.http.ts`});
+                tagAndType.value.push({ def: pureDef, typeName: pureDef, path: `${item.action}/index.http.ts` });
             }
         }
         if (tagAndType.value.length) {
@@ -200,7 +200,7 @@ function createActionDirs() {
                 tagAndType.value.forEach(x => {
                     let existed = addedTagAndType.value.find(e => x.typeName === e.typeName);
                     if (existed) {
-                        addedTagAndType.value.push({def: x.def, typeName: `${item.action}_${x.typeName}`, path: x.path})
+                        addedTagAndType.value.push({ def: x.def, typeName: `${item.action}_${x.typeName}`, path: x.path })
                     } else {
                         addedTagAndType.value.push(x);
                     }
@@ -216,7 +216,7 @@ function createActionDirs() {
                 tagAndApi.value.forEach(x => {
                     let existedApi = addedTagAndApi.value.find(e => x.apiName === e.apiName);
                     if (existedApi) {
-                        addedTagAndApi.value.push({def: x.def, apiName: `${item.action}_${x.name}`, path: x.path})
+                        addedTagAndApi.value.push({ def: x.def, apiName: `${item.action}_${x.name}`, path: x.path })
                     } else {
                         addedTagAndApi.value.push(x);
                     }
@@ -309,22 +309,20 @@ function buildIndexFileContent(item, requestBodyTypeName, queryParamTypeName, re
             if (queryParamTypeName) {
                 paramDef += `\n  queryParam: ${queryParamTypeName},`;
             }
-            paramRef = ', data, { ...config, signal: signal }';
-            url = '`' + item.path.replace(/\{(\w+)\}/g, (match, p1) => {
-                return `\${queryParam.${p1}}`;
-            }) + '`';
+            paramRef = ', { ...config }';
+            url = '`' + item.path.replace(/\{(\w+)\}/g, '${queryParam.$1}') + '`';
         } else {
             if (queryParamTypeName) {
                 paramDef += `\n  queryParam: ${queryParamTypeName},`;
             }
-            paramRef = ', {\n    ...config,\n    params: queryParam,\n    paramsSerializer: function (params) {\n      return qs.stringify(params, { indices: false });\n    },\n    signal: signal\n  }';
+            paramRef = ', {\n    ...config,\n    params: queryParam,\n    paramsSerializer: function (params) {\n      return qs.stringify(params, { indices: false });\n    }\n  }';
             includeQs = '\nimport qs from "qs";'
         }
     } else {
         if (item.method == 'post' || item.method == 'put' || item.method == 'patch') {
-            paramRef = ', null, { ...config, signal: signal }';
+            paramRef = ', null, { ...config }';
         } else {
-            paramRef = ', { ...config, signal: signal }';
+            paramRef = ', { ...config }';
         }
     }
     var summary = ''
@@ -371,7 +369,7 @@ function buildRequestBodyInterface(item) {
 }
 
 function buildParametersInterface(item) {
-    var shape = {def: '', model: ''};
+    var shape = { def: '', model: '' };
     var parameters = swagger['paths'][item.path][item.method]['parameters'];
     if (parameters) {
         var model = `export interface ${item.action}Request {\n`;
@@ -484,13 +482,13 @@ function handleSchema(schema, item) {
         } else if (schema.properties) {
             // 检查是否是multipart/form-data类型的请求体
             var isMultipartFormData = false;
-            if (item.method && swagger.paths[item.path] && swagger.paths[item.path][item.method] && 
-                swagger.paths[item.path][item.method].requestBody && 
-                swagger.paths[item.path][item.method].requestBody.content && 
+            if (item.method && swagger.paths[item.path] && swagger.paths[item.path][item.method] &&
+                swagger.paths[item.path][item.method].requestBody &&
+                swagger.paths[item.path][item.method].requestBody.content &&
                 swagger.paths[item.path][item.method].requestBody.content['multipart/form-data']) {
                 isMultipartFormData = true;
             }
-            
+
             if (isMultipartFormData) {
                 // 为 multipart/form-data 生成明确的接口
                 var model = `export interface ${item.action}FormData {
@@ -540,7 +538,7 @@ function handleSchema(schema, item) {
         }
     } else if (schema['$ref']) {
         if (!pathAndInterfaces.find(e => e.path === item.path && e.ref === schema['$ref'] && e.method === item.method)) {
-            pathAndInterfaces.push({path: item.path, ref: schema['$ref'], method: item.method})
+            pathAndInterfaces.push({ path: item.path, ref: schema['$ref'], method: item.method })
             var ref = getRefObject(schema['$ref']);
             if (ref && ref.obj) {
                 ref.obj.prop = ref.name;
@@ -572,7 +570,7 @@ function getRequestBodySchema(requestBody) {
         if (requestBody.content['multipart/form-data'] && requestBody.content['multipart/form-data'].schema) {
             return requestBody.content['multipart/form-data'].schema;
         }
-        
+
         // 如果没有 multipart/form-data，则按原有逻辑处理
         var keys = Object.keys(requestBody.content);
         if (keys.length) {
