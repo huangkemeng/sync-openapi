@@ -305,12 +305,13 @@ function buildIndexFileContent(item, requestBodyTypeName, queryParamTypeName, re
         if (item.method == 'post' || item.method == 'put' || item.method == 'patch') {
             if (requestBodyTypeName) {
                 paramDef += `\n  data: ${requestBodyTypeName},`;
+                paramRef = ', data, { ...config, signal }';
+            } else {
+                paramRef = ', null, { ...config, signal }';
             }
             if (queryParamTypeName) {
                 paramDef += `\n  queryParam: ${queryParamTypeName},`;
             }
-            paramRef = ', { ...config, signal }';
-            url = '`' + item.path.replace(/\{(\w+)\}/g, '${queryParam.$1}') + '`';
         } else {
             if (queryParamTypeName) {
                 paramDef += `\n  queryParam: ${queryParamTypeName},`;
