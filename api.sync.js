@@ -488,14 +488,48 @@ function handleSchema(schema, item) {
                 isMultipartFormData = true;
             }
             
-            for (var prop in schema.properties) {
-                var propSchema = schema.properties[prop];
-                propSchema.prop = prop;
-                var propShape = handleSchema(propSchema, item);
-                if (propShape.def === 'BinaryData' || propShape.def === 'BinaryData[]' || isMultipartFormData) {
-                    shape.def = 'FormData';
-                } else {
-                    shape.def = 'object';
+            if (isMultipartFormData) {
+                // 为 multipart/form-data 生成明确的接口
+                var model = `export interface ${item.action}FormData {
+`;
+                var childModel = '';
+                for (var prop in schema.properties) {
+                    var propSchema = schema.properties[prop];
+                    // 处理包含点号的属性名
+                    var formattedProp = prop;
+                    if (/[^a-zA-Z0-9]/.test(prop)) {
+                        formattedProp = `"${prop}"`;
+                    }
+                    propSchema.prop = formattedProp;
+                    var propShape = handleSchema(propSchema, item);
+                    var comment = ''
+                    if (propSchema.description) {
+                        comment += `   * ${propSchema.description}\n`
+                    }
+                    if (propSchema.format) {
+                        comment += `   * format: ${propSchema.format}\n`
+                    }
+                    if (comment) {
+                        model += `  /**\n${comment}   */\n`
+                    }
+                    var canNull = propSchema.nullable ? ' | undefined' : '';
+                    model += '  ' + formattedProp + ': ' + propShape.def + canNull + ';\n';
+                    childModel += propShape.model;
+                }
+                model += '}\n\n'
+                shape.model = model;
+                shape.model += childModel;
+                shape.def = 'FormData & ' + item.action + 'FormData';
+            } else {
+                for (var prop in schema.properties) {
+                    var propSchema = schema.properties[prop];
+                    propSchema.prop = prop;
+                    var propShape = handleSchema(propSchema, item);
+                    if (propShape.def === 'BinaryData' || propShape.def === 'BinaryData[]') {
+                        shape.def = 'FormData';
+                    } else {
+                        shape.def = 'object';
+                    }
                 }
             }
         } else {
