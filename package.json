@@ -1,12 +1,12 @@
 {
   "name": "sync-openapi",
-  "version": "1.1.10",
+  "version": "1.1.11",
   "description": "一个快速同步后端定义的契约到前端的工具。生成的都是ts对象",
   "main": "api.sync.js",
   "author": "huangkemeng",
   "license": "ISC",
   "dependencies": {
-    "chalk": "^4.1.0",
+    "chalk": "^4.1.2",
     "commonjs": "^0.0.1"
   },
   "bin": {

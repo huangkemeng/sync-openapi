@@ -12,33 +12,42 @@ let output = './src/apis';
 main();
 
 async function main() {
-    var urlIndex = args.indexOf('--url');
-    if (urlIndex === -1) {
-        return console.log(chalk.red('请先传入swagger配置的url地址！'));
-    } else {
-        fileUrl = args[urlIndex + 1];
-        if (!fileUrl) {
+    // 用于测试的代码
+    const useTestSwagger = args.indexOf("--test") !== -1;
+    if (!useTestSwagger) {
+        var urlIndex = args.indexOf('--url');
+        if (urlIndex === -1) {
             return console.log(chalk.red('请先传入swagger配置的url地址！'));
-        }
-        if (fileUrl.indexOf('http://') !== -1) {
-            https = require('http');
         } else {
-            process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+            fileUrl = args[urlIndex + 1];
+            if (!fileUrl) {
+                return console.log(chalk.red('请先传入swagger配置的url地址！'));
+            }
+            if (fileUrl.indexOf('http://') !== -1) {
+                https = require('http');
+            } else {
+                process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+            }
         }
     }
     var outputCmdIndex = args.indexOf('-o');
     if (outputCmdIndex !== -1 && args[outputCmdIndex + 1]) {
         output = args[outputCmdIndex + 1];
     }
+    if (useTestSwagger) {
+        console.log(chalk.blue('使用测试swagger配置！'));
+        fs.copyFileSync(resolve('./test-swagger.json'), resolve('./swagger.json'));
+    }
+    
     const existSwagger = fs.existsSync(resolve('./swagger.json'));
     var hasF = args.indexOf("-f") !== -1;
-    if (!existSwagger || hasF) {
+    if (!useTestSwagger && (!existSwagger || hasF)) {
         console.log(chalk.blue(`正在从[${fileUrl}]获取新的swagger配置！`));
         var downResult = await getSwaggerFile();
         if (!downResult) {
             return console.log(chalk.red('swagger配置请求失败,请检查网络或url是否设置正确！'));
         }
-    } else {
+    } else if(!useTestSwagger) {
         console.log(chalk.blue('使用已存在的swagger配置！'));
     }
     const jsonString = fs.readFileSync(resolve("./swagger.json"));
@@ -444,7 +453,12 @@ function handleSchema(schema, item) {
             if (schema.properties && (Object.keys(schema.properties).length || schema.properties.length)) {
                 for (var prop in schema.properties) {
                     var propSchema = schema.properties[prop];
-                    propSchema.prop = prop;
+                    // 处理包含点号的属性名
+                    var formattedProp = prop;
+                    if (/[^a-zA-Z0-9]/.test(prop)) {
+                        formattedProp = `"${prop}"`;
+                    }
+                    propSchema.prop = formattedProp;
                     var propShape = handleSchema(propSchema, item);
                     var comment = ''
                     if (propSchema.description) {
@@ -457,7 +471,7 @@ function handleSchema(schema, item) {
                         model += `  /**\n${comment}   */\n`
                     }
                     var canNull = propSchema.nullable ? ' | undefined' : '';
-                    model += '  ' + prop + ': ' + propShape.def + canNull + ';\n';
+                    model += '  ' + formattedProp + ': ' + propShape.def + canNull + ';\n';
                     childModel += propShape.model;
                 }
             }
@@ -465,11 +479,20 @@ function handleSchema(schema, item) {
             shape.model = model;
             shape.model += childModel;
         } else if (schema.properties) {
+            // 检查是否是multipart/form-data类型的请求体
+            var isMultipartFormData = false;
+            if (item.method && swagger.paths[item.path] && swagger.paths[item.path][item.method] && 
+                swagger.paths[item.path][item.method].requestBody && 
+                swagger.paths[item.path][item.method].requestBody.content && 
+                swagger.paths[item.path][item.method].requestBody.content['multipart/form-data']) {
+                isMultipartFormData = true;
+            }
+            
             for (var prop in schema.properties) {
                 var propSchema = schema.properties[prop];
                 propSchema.prop = prop;
                 var propShape = handleSchema(propSchema, item);
-                if (propShape.def === 'BinaryData' || propShape.def === 'BinaryData[]') {
+                if (propShape.def === 'BinaryData' || propShape.def === 'BinaryData[]' || isMultipartFormData) {
                     shape.def = 'FormData';
                 } else {
                     shape.def = 'object';
@@ -508,6 +531,12 @@ function handleSchema(schema, item) {
 
 function getRequestBodySchema(requestBody) {
     if (requestBody && requestBody.content) {
+        // 优先处理 multipart/form-data 类型
+        if (requestBody.content['multipart/form-data'] && requestBody.content['multipart/form-data'].schema) {
+            return requestBody.content['multipart/form-data'].schema;
+        }
+        
+        // 如果没有 multipart/form-data，则按原有逻辑处理
         var keys = Object.keys(requestBody.content);
         if (keys.length) {
             return requestBody.content[keys[0]].schema;
