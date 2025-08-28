@@ -519,7 +519,7 @@ function handleSchema(schema, item) {
                 model += '}\n\n'
                 shape.model = model;
                 shape.model += childModel;
-                shape.def = 'FormData & ' + item.action + 'FormData';
+                shape.def = item.action + 'FormData';
             } else {
                 for (var prop in schema.properties) {
                     var propSchema = schema.properties[prop];
