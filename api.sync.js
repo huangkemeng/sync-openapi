@@ -441,7 +441,7 @@ function handleSchema(schema, item) {
             shape.def = '  ' + schema.name + ` : string${nullable};\n`
         } else {
             if (schema.format === 'binary') {
-                shape.def = 'BinaryData';
+                shape.def = 'File';
             } else {
                 shape.def = 'string';
             }
