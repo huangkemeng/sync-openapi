@@ -309,20 +309,20 @@ function buildIndexFileContent(item, requestBodyTypeName, queryParamTypeName, re
             if (queryParamTypeName) {
                 paramDef += `\n  queryParam: ${queryParamTypeName},`;
             }
-            paramRef = ', { ...config }';
+            paramRef = ', { ...config, signal }';
             url = '`' + item.path.replace(/\{(\w+)\}/g, '${queryParam.$1}') + '`';
         } else {
             if (queryParamTypeName) {
                 paramDef += `\n  queryParam: ${queryParamTypeName},`;
             }
-            paramRef = ', {\n    ...config,\n    params: queryParam,\n    paramsSerializer: function (params) {\n      return qs.stringify(params, { indices: false });\n    }\n  }';
+            paramRef = ', {\n    ...config,\n    signal,\n    params: queryParam,\n    paramsSerializer: function (params) {\n      return qs.stringify(params, { indices: false });\n    }\n  }';
             includeQs = '\nimport qs from "qs";'
         }
     } else {
         if (item.method == 'post' || item.method == 'put' || item.method == 'patch') {
-            paramRef = ', null, { ...config }';
+            paramRef = ', null, { ...config, signal }';
         } else {
-            paramRef = ', { ...config }';
+            paramRef = ', { ...config, signal }';
         }
     }
     var summary = ''
