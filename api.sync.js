@@ -301,11 +301,39 @@ function buildIndexFileContent(item, requestBodyTypeName, queryParamTypeName, re
     var paramRef = ''
     var url = '`' + item.path.replace(/\{(\w+)\}/g, '${queryParam.$1}') + '`';
     var includeQs = '';
+    // 检查是否是multipart/form-data类型的请求
+    var isMultipartFormData = false;
+    if (item.method && swagger.paths[item.path] && swagger.paths[item.path][item.method] &&
+        swagger.paths[item.path][item.method].requestBody &&
+        swagger.paths[item.path][item.method].requestBody.content &&
+        swagger.paths[item.path][item.method].requestBody.content['multipart/form-data']) {
+        isMultipartFormData = true;
+    }
     if (requestBodyTypeName || queryParamTypeName) {
         if (item.method == 'post' || item.method == 'put' || item.method == 'patch') {
             if (requestBodyTypeName) {
                 paramDef += `\n  data: ${requestBodyTypeName},`;
-                paramRef = ', data, { ...config, signal }';
+                if (isMultipartFormData) {
+                    // 为 multipart/form-data 类型的请求体添加数据转换逻辑
+                    paramRef = `, (function() {
+    const formData = new FormData();
+    for (const key in data) {
+        if (data[key] !== undefined) {
+            // 处理数组值的情况
+            if (Array.isArray(data[key])) {
+                data[key].forEach(value => {
+                    formData.append(key, value);
+                });
+            } else {
+                formData.append(key, data[key]);
+            }
+        }
+    }
+    return formData;
+})(), { ...config, signal }`;
+                } else {
+                    paramRef = ', data, { ...config, signal }';
+                }
             } else {
                 paramRef = ', null, { ...config, signal }';
             }
