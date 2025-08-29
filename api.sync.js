@@ -12,42 +12,36 @@ let output = './src/apis';
 main();
 
 async function main() {
-    // 用于测试的代码
-    const useTestSwagger = args.indexOf("--test") !== -1;
-    if (!useTestSwagger) {
-        var urlIndex = args.indexOf('--url');
-        if (urlIndex === -1) {
+    var urlIndex = args.indexOf('--url');
+    const existSwagger = fs.existsSync(resolve('./swagger.json'));
+    if (urlIndex === -1) {
+        if (!existSwagger) {
             return console.log(chalk.red('请先传入swagger配置的url地址！'));
+        }
+    } else {
+        fileUrl = args[urlIndex + 1];
+        if (!fileUrl) {
+            return console.log(chalk.red('请先传入swagger配置的url地址！'));
+        }
+        if (fileUrl.indexOf('http://') !== -1) {
+            https = require('http');
         } else {
-            fileUrl = args[urlIndex + 1];
-            if (!fileUrl) {
-                return console.log(chalk.red('请先传入swagger配置的url地址！'));
-            }
-            if (fileUrl.indexOf('http://') !== -1) {
-                https = require('http');
-            } else {
-                process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-            }
+            process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
         }
     }
     var outputCmdIndex = args.indexOf('-o');
     if (outputCmdIndex !== -1 && args[outputCmdIndex + 1]) {
         output = args[outputCmdIndex + 1];
     }
-    if (useTestSwagger) {
-        console.log(chalk.blue('使用测试swagger配置！'));
-        fs.copyFileSync(resolve('./test-swagger.json'), resolve('./swagger.json'));
-    }
 
-    const existSwagger = fs.existsSync(resolve('./swagger.json'));
     var hasF = args.indexOf("-f") !== -1;
-    if (!useTestSwagger && (!existSwagger || hasF)) {
+    if (hasF && fileUrl && (fileUrl.indexOf('http://') !== -1 || fileUrl.indexOf('https://') !== -1)) {
         console.log(chalk.blue(`正在从[${fileUrl}]获取新的swagger配置！`));
         var downResult = await getSwaggerFile();
         if (!downResult) {
             return console.log(chalk.red('swagger配置请求失败,请检查网络或url是否设置正确！'));
         }
-    } else if (!useTestSwagger) {
+    } else if (existSwagger) {
         console.log(chalk.blue('使用已存在的swagger配置！'));
     }
     const jsonString = fs.readFileSync(resolve("./swagger.json"));
@@ -170,6 +164,7 @@ function createActionDirs() {
         var parameterContent = buildParametersInterface(item);
         var responseContent = buildResponseInterface(item);
         var indexFileContent = buildIndexFileContent(item, requestBodyContent.def, parameterContent.def, responseContent.def);
+        indexFileContent = '// @ts-nocheck\n' + indexFileContent; // 添加跳过 TypeScript 类型检查的声明
         indexFileContent += '\n\n' + (requestBodyContent.model || '') + (parameterContent.model || '') + (responseContent.model || '');
         fs.writeFileSync(resolve(actionPath + '/index.http.ts'), indexFileContent);
         // fs.writeFileSync(resolve(actionPath + '/type.d.ts'), `declare global {\n  interface HttpApi {\n${summary}    ${item.action}: typeof import("./index.http").default;\n  }\n}\nexport { };`);
@@ -301,36 +296,23 @@ function buildIndexFileContent(item, requestBodyTypeName, queryParamTypeName, re
     var paramRef = ''
     var url = '`' + item.path.replace(/\{(\w+)\}/g, '${queryParam.$1}') + '`';
     var includeQs = '';
-    // 检查是否是multipart/form-data类型的请求
     var isMultipartFormData = false;
+
+    // 检查是否是multipart/form-data类型的请求
     if (item.method && swagger.paths[item.path] && swagger.paths[item.path][item.method] &&
         swagger.paths[item.path][item.method].requestBody &&
         swagger.paths[item.path][item.method].requestBody.content &&
         swagger.paths[item.path][item.method].requestBody.content['multipart/form-data']) {
         isMultipartFormData = true;
     }
+
     if (requestBodyTypeName || queryParamTypeName) {
         if (item.method == 'post' || item.method == 'put' || item.method == 'patch') {
             if (requestBodyTypeName) {
                 paramDef += `\n  data: ${requestBodyTypeName},`;
+                // 如果是multipart/form-data类型，需要特殊处理
                 if (isMultipartFormData) {
-                    // 为 multipart/form-data 类型的请求体添加数据转换逻辑
-                    paramRef = `, (function() {
-    const formData = new FormData();
-    for (const key in data) {
-        if (data[key] !== undefined) {
-            // 处理数组值的情况
-            if (Array.isArray(data[key])) {
-                data[key].forEach(value => {
-                    formData.append(key, value);
-                });
-            } else {
-                formData.append(key, data[key]);
-            }
-        }
-    }
-    return formData;
-})(), { ...config, signal }`;
+                    paramRef = ', formData, { ...config, signal }';
                 } else {
                     paramRef = ', data, { ...config, signal }';
                 }
@@ -362,7 +344,13 @@ function buildIndexFileContent(item, requestBodyTypeName, queryParamTypeName, re
     if (paramDef) {
         paramDef = '\n' + paramDef;
     }
-    return `import axios, { type AxiosRequestConfig, type AxiosResponse } from "axios";${includeQs}\n\n${summary}export default function ${item.action}(${paramDef}\n  signal?: AbortSignal,\n  config?: AxiosRequestConfig): Promise${responseDef} {\n  return axios.${item.method}(${url}${paramRef});\n}`
+
+    // 如果是multipart/form-data类型，需要添加FormData转换逻辑
+    if (isMultipartFormData && requestBodyTypeName) {
+        return `import axios, { type AxiosRequestConfig, type AxiosResponse } from "axios";${includeQs}\n\n${summary}export default function ${item.action}(${paramDef}\n  signal?: AbortSignal,\n  config?: AxiosRequestConfig): Promise${responseDef} {\n  const formData = new FormData();\n  for (const key in data) {\n    var value = data[key as keyof ${requestBodyTypeName}];\n    if (value !== undefined && value !== null) {\n      if (Array.isArray(value)) {\n        (value as ( string | Blob)[]).forEach((item, index) => {\n          formData.append(key, item );\n        });\n      } else {\n        formData.append(key, value as string | Blob); \n      }\n    }\n  }\n  return axios.${item.method}(${url}${paramRef});\n}`
+    } else {
+        return `import axios, { type AxiosRequestConfig, type AxiosResponse } from "axios";${includeQs}\n\n${summary}export default function ${item.action}(${paramDef}\n  signal?: AbortSignal,\n  config?: AxiosRequestConfig): Promise${responseDef} {\n  return axios.${item.method}(${url}${paramRef});\n}`
+    }
 }
 
 function buildResponseInterface(item) {
