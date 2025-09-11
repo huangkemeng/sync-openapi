@@ -2,7 +2,7 @@
 const fs = require("fs");
 let https = require("https");
 const chalk = require("chalk");
-const { resolve } = require("path");
+const { resolve, relative } = require("path");
 const { log } = require("console");
 const args = process.argv;
 let swagger = {};
@@ -163,7 +163,7 @@ function createActionDirs() {
         var requestBodyContent = buildRequestBodyInterface(item);
         var parameterContent = buildParametersInterface(item);
         var responseContent = buildResponseInterface(item);
-        var indexFileContent = buildIndexFileContent(item, requestBodyContent.def, parameterContent.def, responseContent.def);
+        var indexFileContent = buildIndexFileContent(item, requestBodyContent.def, parameterContent.def, responseContent.def, resolve(actionPath));
         indexFileContent = '// @ts-nocheck\n' + indexFileContent; // 添加跳过 TypeScript 类型检查的声明
         indexFileContent += '\n\n' + (requestBodyContent.model || '') + (parameterContent.model || '') + (responseContent.model || '');
         fs.writeFileSync(resolve(actionPath + '/index.http.ts'), indexFileContent);
@@ -221,6 +221,10 @@ function createActionDirs() {
             }
         }
     });
+    var axiosInstanceDeclare = generateAxiosInstanceDeclare();
+    if (axiosInstanceDeclare) {
+        fs.writeFileSync(resolve(output + '/ApiAxiosInstance.ts'), axiosInstanceDeclare);
+    }
     var apiTClientDeclare = generateGlobalApiClientDeclare(tagAndApis);
     if (apiTClientDeclare) {
         fs.writeFileSync(resolve(output + '/ApiClient.ts'), apiTClientDeclare);
@@ -237,6 +241,12 @@ function createActionDirs() {
 
 function isBaseType(type) {
     return ['integer', 'number', 'boolean', 'string', 'BinaryData', 'FormData', 'object', 'array', '[]'].indexOf(type) !== -1;
+}
+
+function generateAxiosInstanceDeclare() {
+    return `import axios from 'axios';
+const apiAxiosInstance = axios.create();
+export default apiAxiosInstance;`
 }
 
 function generateGlobalApiClientDeclare(tagAndApis) {
@@ -291,7 +301,7 @@ function getTagsByPath(path, methodName) {
     return config["tags"];
 }
 
-function buildIndexFileContent(item, requestBodyTypeName, queryParamTypeName, responseName) {
+function buildIndexFileContent(item, requestBodyTypeName, queryParamTypeName, responseName, fullPath) {
     var paramDef = '';
     var paramRef = ''
     var url = '`' + item.path.replace(/\{(\w+)\}/g, '${queryParam.$1}') + '`';
@@ -347,9 +357,9 @@ function buildIndexFileContent(item, requestBodyTypeName, queryParamTypeName, re
 
     // 如果是multipart/form-data类型，需要添加FormData转换逻辑
     if (isMultipartFormData && requestBodyTypeName) {
-        return `import axios, { type AxiosRequestConfig, type AxiosResponse } from "axios";${includeQs}\n\n${summary}export default function ${item.action}(${paramDef}\n  signal?: AbortSignal,\n  config?: AxiosRequestConfig): Promise${responseDef} {\n  const formData = new FormData();\n  for (const key in data) {\n    var value = data[key as keyof ${requestBodyTypeName}];\n    if (value !== undefined && value !== null) {\n      if (Array.isArray(value)) {\n        (value as ( string | Blob)[]).forEach((item, index) => {\n          formData.append(key, item );\n        });\n      } else {\n        formData.append(key, value as string | Blob); \n      }\n    }\n  }\n  return axios.${item.method}(${url}${paramRef});\n}`
+        return `import type { AxiosRequestConfig, AxiosResponse } from "axios";\nimport axios from "${relative(fullPath, resolve(output + '/ApiAxiosInstance.ts')).replace(/\\/g, '/')}";\n${includeQs}\n\n${summary}export default function ${item.action}(${paramDef}\n  signal?: AbortSignal,\n  config?: AxiosRequestConfig): Promise${responseDef} {\n  const formData = new FormData();\n  for (const key in data) {\n    var value = data[key as keyof ${requestBodyTypeName}];\n    if (value !== undefined && value !== null) {\n      if (Array.isArray(value)) {\n        (value as ( string | Blob)[]).forEach((item, index) => {\n          formData.append(key, item );\n        });\n      } else {\n        formData.append(key, value as string | Blob); \n      }\n    }\n  }\n  return axios.${item.method}(${url}${paramRef});\n}`
     } else {
-        return `import axios, { type AxiosRequestConfig, type AxiosResponse } from "axios";${includeQs}\n\n${summary}export default function ${item.action}(${paramDef}\n  signal?: AbortSignal,\n  config?: AxiosRequestConfig): Promise${responseDef} {\n  return axios.${item.method}(${url}${paramRef});\n}`
+        return `import type { AxiosRequestConfig, AxiosResponse } from "axios";\nimport axios from "${relative(fullPath, resolve(output + '/ApiAxiosInstance.ts')).replace(/\\/g, '/')}";\n${includeQs}\n\n${summary}export default function ${item.action}(${paramDef}\n  signal?: AbortSignal,\n  config?: AxiosRequestConfig): Promise${responseDef} {\n  return axios.${item.method}(${url}${paramRef});\n}`
     }
 }
 
